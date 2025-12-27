@@ -172,6 +172,26 @@ export default class Switch extends DiscordBasePlugin {
         this.warn = (steamid, msg) => { this.server.rcon.warn(steamid, msg) };
     }
 
+    async sendDiscordEmbed(channel, embed) {
+        if (!channel || !embed) return false;
+        try {
+            await channel.send({ embeds: [embed] });
+            return true;
+        } catch (err) {
+            if (err.message === 'Cannot send an empty message') {
+                try {
+                    await channel.send({ embed: embed });
+                    return true;
+                } catch (legacyErr) {
+                    this.verbose(1, `Discord send failed: ${legacyErr.message}`);
+                    return false;
+                }
+            }
+            this.verbose(1, `Discord send failed: ${err.message}`);
+            return false;
+        }
+    }
+
     async mount() {
         await this.models.PlayerCooldowns.sync();
         this.server.on('CHAT_MESSAGE', this.onChatMessage);
