@@ -121,6 +121,7 @@ export default class Switch extends DiscordBasePlugin {
         this.checkPlayer = this.checkPlayer.bind(this);
         this.onDiscordMessage = this.onDiscordMessage.bind(this);
         this.getDiagnosticInfo = this.getDiagnosticInfo.bind(this);
+        this.sendDiscordEmbed = this.sendDiscordEmbed.bind(this);
 
         this.playersConnectionTime = [];
         this.matchEndSwitch = new Array(this.options.endMatchSwitchSlots > 0 ? this.options.endMatchSwitchSlots : 0);
@@ -679,7 +680,7 @@ export default class Switch extends DiscordBasePlugin {
                         color: 0xFF0000,
                         timestamp: new Date()
                     };
-                    channel.send({ embeds: [embed] });
+                    await this.sendDiscordEmbed(channel, embed);
                 }
             }
         } catch (err) {
@@ -738,7 +739,7 @@ export default class Switch extends DiscordBasePlugin {
                     { name: 'Top 10 Locked Players', value: playerList }
                 ]
             };
-            message.channel.send({ embeds: [embed] });
+            await this.sendDiscordEmbed(message.channel, embed);
         } else if (subCommand === 'check') {
             const ident = args.slice(2).join(' ');
             if (!ident) {
@@ -772,7 +773,7 @@ export default class Switch extends DiscordBasePlugin {
                     desc += `🟢 **Switch Cooldown:** Ready\n`;
                 }
 
-                message.channel.send({ embeds: [{ title: '🔍 Player Status', description: desc, color: 0x3498db }] });
+                await this.sendDiscordEmbed(message.channel, { title: '🔍 Player Status', description: desc, color: 0x3498db });
             }
         } else if (subCommand === 'clear') {
             const ident = args.slice(2).join(' ');
@@ -806,7 +807,7 @@ export default class Switch extends DiscordBasePlugin {
                     { name: '!switch help', value: 'Show this help message.' }
                 ]
             };
-            message.channel.send({ embeds: [embed] });
+            await this.sendDiscordEmbed(message.channel, embed);
         }
     }
 }
