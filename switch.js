@@ -230,10 +230,12 @@ export default class Switch extends DiscordBasePlugin {
 
             if ((typeof this.options.commandPrefix === 'string' && !message.startsWith(this.options.commandPrefix)) || (typeof this.options.commandPrefix === 'object' && this.options.commandPrefix.length >= 1 && !this.options.commandPrefix.find(c => message.startsWith(c.toLowerCase())))) return;
 
-            this.verbose(1, `${playerName}:\n > Connection: ${this.getSecondsFromJoin(steamID)}\n > Match Start: ${this.getSecondsFromMatchStart()}`);
-            this.verbose(1, 'Received command', message, commandPrefixInUse);
+            const connectionSeconds = this.getSecondsFromJoin(steamID);
+            const connectionLog = connectionSeconds > 0 ? `${connectionSeconds}` : "0s (New Join/Plugin Reload)";
+            this.verbose(1, `${playerName}:\n > Connection: ${connectionLog}\n > Match Start: ${this.getSecondsFromMatchStart()}`);
+            this.verbose(1, `[Command] Player ${playerName} sent: ${info.message}`);
 
-            const commandSplit = message.substring(commandPrefixInUse.length).trim().split(' ');
+            const commandSplit = message.substring(commandPrefixInUse.length).trim().split(' ').filter(Boolean);
             const subCommand = commandSplit[ 0 ];
 
             const isAdmin = info.chat === "ChatAdmin" || (this.server.admins && Object.prototype.hasOwnProperty.call(this.server.admins, steamID));
@@ -241,17 +243,29 @@ export default class Switch extends DiscordBasePlugin {
                 let pl;
                 switch (subCommand) {
                 case 'now':
-                    if (!isAdmin) return;
+                    if (!isAdmin) {
+                        this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                        return;
+                    }
+                    this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
                     pl = this.getPlayerByUsernameOrSteamID(steamID, commandSplit.splice(1).join(' '))
                     if (pl) this.switchPlayer(pl.steamID);
                     break;
                 case 'double':
-                    if (!isAdmin) return;
+                    if (!isAdmin) {
+                        this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                        return;
+                    }
+                    this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
                     pl = this.getPlayerByUsernameOrSteamID(steamID, commandSplit.splice(1).join(' '))
                     if (pl) this.doubleSwitchPlayer(pl.steamID, true);
                     break;
                 case 'squad':
-                    if (!isAdmin) return;
+                    if (!isAdmin) {
+                        this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                        return;
+                    }
+                    this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
                     await this.server.updateSquadList();
                     await this.server.updatePlayerList();
                     await this.switchSquad(+commandSplit[ 1 ], commandSplit[ 2 ]);
@@ -267,7 +281,11 @@ export default class Switch extends DiscordBasePlugin {
                     this.warn(steamID, `Switch Slots:\nTeam 1: ${this.getSwitchSlotsPerTeam(1)}\nTeam 2: ${this.getSwitchSlotsPerTeam(2)}`);
                     break;
                 case "matchend":
-                    if (!isAdmin) return;
+                    if (!isAdmin) {
+                        this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                        return;
+                    }
+                    this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
                     await this.server.updatePlayerList();
                     // const switchData = {
                     //     from: +info.player.teamID,
@@ -282,20 +300,32 @@ export default class Switch extends DiscordBasePlugin {
                     this.addPlayerToMatchendSwitches(pl);
                     break;
                 case "doublesquad":
-                    if (!isAdmin) return;
+                    if (!isAdmin) {
+                        this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                        return;
+                    }
+                    this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
                     await this.server.updateSquadList();
                     await this.server.updatePlayerList();
                     this.doubleSwitchSquad(+commandSplit[ 1 ], commandSplit[ 2 ]);
                     break;
                 case "matchendsquad":
-                    if (!isAdmin) return;
+                    if (!isAdmin) {
+                        this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                        return;
+                    }
+                    this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
                     await this.server.updateSquadList();
                     await this.server.updatePlayerList();
                     this.warn(steamID, `Squad ${commandSplit[ 1 ]} (${commandSplit[ 2 ]}) queued for switch at match end.`);
                     await this.addSquadToMatchendSwitches(+commandSplit[ 1 ], commandSplit[ 2 ]);
                     break;
                 case "triggermatchend":
-                    if (!isAdmin) return;
+                    if (!isAdmin) {
+                        this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                        return;
+                    }
+                    this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
                     this.warn(steamID, 'Triggering match-end switch sequence...');
                     await this.doSwitcMatchend();
                     this.warn(steamID, 'Match-end switch sequence complete.');
@@ -316,7 +346,11 @@ export default class Switch extends DiscordBasePlugin {
                     }
                     break;
                 case "check":
-                    if (!isAdmin) return;
+                    if (!isAdmin) {
+                        this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                        return;
+                    }
+                    this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
                     {
                         const ident = commandSplit.splice(1).join(' ');
                         if (!ident) {
@@ -336,7 +370,11 @@ export default class Switch extends DiscordBasePlugin {
                     }
                     break;
                 case "clear":
-                    if (!isAdmin) return;
+                    if (!isAdmin) {
+                        this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                        return;
+                    }
+                    this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
                     {
                         const ident = commandSplit.splice(1).join(' ');
                         const result = await this.checkPlayer(ident);
@@ -351,7 +389,11 @@ export default class Switch extends DiscordBasePlugin {
                     }
                     break;
                 case "clearall":
-                    if (!isAdmin) return;
+                    if (!isAdmin) {
+                        this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                        return;
+                    }
+                    this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
                     await this.options.database.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
                         await this.models.PlayerCooldowns.destroy({ where: {}, truncate: true, transaction: t });
                     });
@@ -373,11 +415,13 @@ export default class Switch extends DiscordBasePlugin {
             if (cooldownData && cooldownData.scrambleLockdownExpiry && new Date() < cooldownData.scrambleLockdownExpiry) {
                 const remaining = Math.ceil((cooldownData.scrambleLockdownExpiry - Date.now()) / 60000);
                 this.warn(steamID, `Scramble Lock: Cannot switch for ${remaining}m.`);
+                this.verbose(1, `[Switch] Denied ${playerName}: Scramble lockdown active.`);
                 return;
             }
 
             if (this.getSecondsFromJoin(steamID) / 60 > this.options.switchEnabledMinutes && this.getSecondsFromMatchStart() / 60 > this.options.switchEnabledMinutes) {
                 this.warn(steamID, `Time Limit: Switch allowed only in first ${this.options.switchEnabledMinutes}m of join/match.`);
+                this.verbose(1, `[Switch] Denied ${playerName}: Match time limit exceeded.`);
                 return;
             }
 
@@ -387,16 +431,19 @@ export default class Switch extends DiscordBasePlugin {
                 (Date.now() - new Date(cooldownData.lastSwitchTimestamp).getTime()) < cooldownDuration) {
                 const remaining = Math.ceil((cooldownDuration - (Date.now() - new Date(cooldownData.lastSwitchTimestamp).getTime())) / 60000);
                 this.warn(steamID, `Cooldown: Please wait ${remaining}m.`);
+                this.verbose(1, `[Switch] Denied ${playerName}: Cooldown active.`);
                 return;
             }
 
             if (availableSwitchSlots <= 0) {
                 this.warn(steamID, `Balance Limit: Teams would become too unbalanced.`);
+                this.verbose(1, `[Switch] Denied ${playerName}: Teams unbalanced.`);
                 return;
             }
 
            try {
                 await this.switchPlayer(steamID);
+                this.verbose(1, `[Switch] Executed for ${playerName}.`);
                 await this.options.database.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
                     await this.models.PlayerCooldowns.upsert({ steamID, playerName, lastSwitchTimestamp: new Date() }, { transaction: t });
                 });
