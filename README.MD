@@ -37,7 +37,7 @@ Manages player team-change requests with cooldown enforcement and admin restrict
     "database": "sqlite",
     "switchCooldownHours": 3,
     "switchCooldownMinutes": 10,
-    "switchEnabledMinutes": 5,
+    "switchEnabledMinutes": 0,
     "doubleSwitchCommands": ["!bug", "!stuck", "!doubleswitch"],
     "doubleSwitchCooldownHours": 0.5,
     "doubleSwitchDelaySeconds": 1,
@@ -63,7 +63,7 @@ Manages player team-change requests with cooldown enforcement and admin restrict
 
 **Switch Behavior:**
 - `switchCooldownHours` — hours before player can switch again. Default: `3`
-- `switchCooldownMinutes` — overrides `switchCooldownHours` if set. Default: `10`
+- `switchCooldownMinutes` — overrides `switchCooldownHours` if set. Default: `0` (which causes `switchCooldownHours` to be used)
 - `switchEnabledMinutes` — time window after match start or player join to allow switches. Default: `5`
 - `maxUnbalancedSlots` — max player difference between teams to allow switch. Default: `3`
 
