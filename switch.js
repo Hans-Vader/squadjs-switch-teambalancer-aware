@@ -3,6 +3,11 @@ import DiscordBasePlugin from './discord-base-plugin.js';
 import { setTimeout as delay } from "timers/promises";
 const { DataTypes, Op } = Sequelize;
 
+/**
+ * SquadJS Switch Plugin - TeamBalancer Aware
+ * @author Slacker | https://github.com/mikebjoyce/squadjs-switch-teambalancer-aware
+ */
+
 export default class Switch extends DiscordBasePlugin {
     static get description() {
         return "Switch plugin";
@@ -14,17 +19,17 @@ export default class Switch extends DiscordBasePlugin {
 
     static get optionsSpecification() {
         return {
-            ...DiscordBasePlugin.optionsSpecification,
+            discordClient: {
+                required: true,
+                description: 'Discord connector name.',
+                connector: 'discord',
+                default: 'discord'
+            },
             commandPrefix: {
                 required: false,
                 description: "Prefix of every switch command, can be an array",
                 default: [ "!switch", "!change" ]
             },
-            // duringMatchSwitchSlots: {
-            //     required: true,
-            //     description: "Number of switch slots, if one is free a player will instanlty get a switch",
-            //     default: 2
-            // },
             doubleSwitchCommands: {
                 required: false,
                 description: 'Array of commands that can be sent in every chat to request a double switch',
@@ -78,7 +83,7 @@ export default class Switch extends DiscordBasePlugin {
             },
             discordChannelID: {
                 required: false,
-                description: 'Discord channel ID for logs.',
+                description: "Discord channel ID for logs.",
                 default: ''
             },
             database: {
@@ -121,13 +126,13 @@ export default class Switch extends DiscordBasePlugin {
         this.checkPlayer = this.checkPlayer.bind(this);
         this.onDiscordMessage = this.onDiscordMessage.bind(this);
         this.getDiagnosticInfo = this.getDiagnosticInfo.bind(this);
-        this.sendDiscordEmbed = this.sendDiscordEmbed.bind(this);
+        this.safeTransaction = this.safeTransaction.bind(this);
+        this.safeDiscordReply = this.safeDiscordReply.bind(this);
 
         this.playersConnectionTime = [];
-        this.matchEndSwitch = new Array(this.options.endMatchSwitchSlots > 0 ? this.options.endMatchSwitchSlots : 0);
         this.recentSwitches = [];
         this.recentDoubleSwitches = [];
-        this.recentDisconnetions = [];
+        this.recentDisconnections = [];
 
         this.models = {};
 
@@ -172,23 +177,28 @@ export default class Switch extends DiscordBasePlugin {
         this.warn = (steamid, msg) => { this.server.rcon.warn(steamid, msg) };
     }
 
-    async sendDiscordEmbed(channel, embed) {
-        if (!channel || !embed) return false;
-        try {
-            await channel.send({ embeds: [embed] });
-            return true;
-        } catch (err) {
-            if (err.message === 'Cannot send an empty message') {
-                try {
-                    await channel.send({ embed: embed });
-                    return true;
-                } catch (legacyErr) {
-                    this.verbose(1, `Discord send failed: ${legacyErr.message}`);
-                    return false;
+    async safeTransaction(logicFn) {
+        const maxRetries = 5;
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                return await this.options.database.transaction(logicFn);
+            } catch (err) {
+                const isLocked = err.message && (err.message.includes('SQLITE_BUSY') || err.message.includes('database is locked'));
+                if (isLocked && i < maxRetries - 1) {
+                    await delay(Math.random() * 500 + 200);
+                } else {
+                    throw err;
                 }
             }
-            this.verbose(1, `Discord send failed: ${err.message}`);
-            return false;
+        }
+    }
+
+    async safeDiscordReply(message, content) {
+        if (!message || !content) return;
+        try {
+            await message.reply(content);
+        } catch (err) {
+            this.verbose(1, `Discord reply failed: ${err.message}`);
         }
     }
 
@@ -207,7 +217,12 @@ export default class Switch extends DiscordBasePlugin {
     }
 
     async prepareToMount() {
+        if (this.options.discordChannelID) {
+            this.options.channelID = this.options.discordChannelID;
+        }
+        await super.prepareToMount();
         await this.models.Endmatch.sync();
+        await this.models.PlayerCooldowns.sync();
     }
 
     createModel(name, schema) {
@@ -382,7 +397,7 @@ export default class Switch extends DiscordBasePlugin {
                             this.warn(steamID, 'Player not found or multiple matches.');
                             return;
                         }
-                        await this.options.database.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
+                        await this.safeTransaction(async (t) => {
                             await this.models.PlayerCooldowns.destroy({ where: { steamID: result.steamID }, transaction: t });
                         });
                         this.warn(steamID, `Cleared cooldowns for ${result.playerName || result.steamID}`);
@@ -394,7 +409,7 @@ export default class Switch extends DiscordBasePlugin {
                         return;
                     }
                     this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
-                    await this.options.database.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
+                    await this.safeTransaction(async (t) => {
                         await this.models.PlayerCooldowns.destroy({ where: {}, truncate: true, transaction: t });
                     });
                     this.warn(steamID, "All player cooldowns cleared.");
@@ -441,15 +456,46 @@ export default class Switch extends DiscordBasePlugin {
                 return;
             }
 
-           try {
+            let switchSuccess = false;
+            try {
                 await this.switchPlayer(steamID);
-                this.verbose(1, `[Switch] Executed for ${playerName}.`);
-                await this.options.database.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
-                    await this.models.PlayerCooldowns.upsert({ steamID, playerName, lastSwitchTimestamp: new Date() }, { transaction: t });
-                });
+                switchSuccess = true;
             } catch (err) {
-                this.verbose(1, `Error executing switch: ${err.message}`);
-                this.warn(steamID, "Team switch failed. Please try again or contact an admin.");
+                if (err.message && (err.message.toLowerCase().includes('timeout') || err.message.toLowerCase().includes('timed out'))) {
+                    this.verbose(1, `[Switch] RCON timeout for ${playerName}, verifying switch status...`);
+
+                    // Wait for server to process the switch
+                    await delay(3000);
+
+                    // Refresh player list and check if team actually changed
+                    await this.server.updatePlayerList();
+                    const currentPlayer = this.server.players.find(p => p.steamID === steamID);
+
+                    if (currentPlayer && currentPlayer.teamID !== teamID) {
+                        // Team changed → switch succeeded despite timeout
+                        this.verbose(1, `[Switch] Verified: ${playerName} switched from Team ${teamID} to Team ${currentPlayer.teamID}`);
+                        switchSuccess = true;
+                    } else {
+                        // Team unchanged or player disconnected → switch failed
+                        this.verbose(1, `[Switch] Verified: ${playerName} switch failed (${currentPlayer ? `still on Team ${teamID}` : 'player disconnected'})`);
+                        this.warn(steamID, "Team switch failed. Please try again or contact an admin.");
+                    }
+                } else {
+                    this.verbose(1, `Error executing switch: ${err.message}`);
+                    this.warn(steamID, "Team switch failed. Please try again or contact an admin.");
+                }
+            }
+
+            if (switchSuccess) {
+                try {
+                    await this.safeTransaction(async (t) => {
+                        await this.models.PlayerCooldowns.upsert({ steamID, playerName, lastSwitchTimestamp: new Date() }, { transaction: t });
+                    });
+                } catch (dbErr) {
+                    this.verbose(1, `[Switch] Database update failed: ${dbErr.message}`);
+                }
+                
+                this.verbose(1, `[Switch] Executed for ${playerName}.`);
             }
         }
         } catch (err) {
@@ -478,6 +524,8 @@ export default class Switch extends DiscordBasePlugin {
         await this.cleanup();
         this.doSwitcMatchend();
 
+        //Slacker: the original plguin has these lines. Just changes the local (only in plugin memory) player teamIDs on round end.
+        //https://github.com/fantinodavide/squadjs-switch-plugin/blob/a01f07e66d79d78b7ada02a2258d047409d2631a/switch.js#L310
         for (let p of this.server.players)
             p.teamID = p.teamID == 1 ? 2 : 1;
     }
@@ -523,7 +571,13 @@ export default class Switch extends DiscordBasePlugin {
         const teamID = info.player?.teamID;
 
         // this.recentSwitches = this.recentSwitches.filter(p => p.steamID != steamID);
-        this.recentDisconnetions[ steamID ] = { teamID: teamID, time: new Date() };
+        this.recentDisconnections[ steamID ] = { teamID: teamID, time: new Date() };
+
+        const cutoff = Date.now() - (60 * 60 * 1000);
+        for (const key in this.recentDisconnections) {
+            if (this.recentDisconnections[key].time.getTime() < cutoff) delete this.recentDisconnections[key];
+        }
+
         this.recentDoubleSwitches = this.recentDoubleSwitches.filter(p => p.steamID != steamID);
     }
 
@@ -536,7 +590,7 @@ export default class Switch extends DiscordBasePlugin {
         const playerName = info.player?.name;
         const teamID = info.player?.teamID;
 
-        const preDisconnectionData = this.recentDisconnetions[ steamID ];
+        const preDisconnectionData = this.recentDisconnections[ steamID ];
         if (!preDisconnectionData) return;
 
         const needSwitch = teamID != preDisconnectionData.teamID;
@@ -572,11 +626,18 @@ export default class Switch extends DiscordBasePlugin {
                 this.recentDoubleSwitches.push({ steamID: steamID, datetime: new Date() });
         }
 
-        await this.server.rcon.execute(`AdminForceTeamChange ${steamID}`);
-        await delay(this.options.doubleSwitchDelaySeconds * 1000);
-        await this.server.rcon.execute(`AdminForceTeamChange ${steamID}`);
+        try {
+            await this.server.rcon.execute(`AdminForceTeamChange ${steamID}`);
+            await delay(this.options.doubleSwitchDelaySeconds * 1000);
+            await this.server.rcon.execute(`AdminForceTeamChange ${steamID}`);
 
-        if (forced && senderSteamID) this.warn(senderSteamID, `Player has been double-switched.`);
+            if (forced && senderSteamID) this.warn(senderSteamID, `Player has been double-switched.`);
+        } catch (err) {
+            this.verbose(1, `Double switch failed for ${steamID}: ${err.message}`);
+            if (forced && senderSteamID) {
+                this.warn(senderSteamID, `Double switch failed: ${err.message}`);
+            }
+        }
     }
 
     switchSquad(number, team) {
@@ -681,7 +742,7 @@ export default class Switch extends DiscordBasePlugin {
         const switchCutoff = new Date(now.getTime() - switchCooldownMs);
 
         try {
-            await this.options.database.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
+            await this.safeTransaction(async (t) => {
                 await this.models.PlayerCooldowns.destroy({
                     where: {
                         [Op.and]: [
@@ -736,28 +797,37 @@ export default class Switch extends DiscordBasePlugin {
         });
 
         try {
-            await this.options.database.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
-                await this.models.PlayerCooldowns.bulkCreate(records, {
-                    updateOnDuplicate: ['scrambleLockdownExpiry', 'playerName'],
-                    transaction: t
-                });
+            await this.safeTransaction(async (t) => {
+                const chunkSize = 10;
+                for (let i = 0; i < records.length; i += chunkSize) {
+                    await this.models.PlayerCooldowns.bulkCreate(records.slice(i, i + chunkSize), {
+                        updateOnDuplicate: ['scrambleLockdownExpiry', 'playerName'],
+                        transaction: t
+                    });
+                }
             });
             this.verbose(1, `Switch lockdown active for ${records.length} players until ${expiry.toISOString()}.`);
 
-            if (this.options.discordClient && this.options.discordChannelID) {
-                const channel = await this.options.discordClient.channels.fetch(this.options.discordChannelID);
-                if (channel) {
-                    const embed = {
-                        title: '🚨 Scramble Lockout Initiated',
-                        description: `${affectedPlayers.length} players barred for ${this.options.scrambleLockdownDurationMinutes} minutes.`,
-                        color: 0xFF0000,
-                        timestamp: new Date()
-                    };
-                    await this.sendDiscordEmbed(channel, embed);
-                }
+            if (this.channel) {
+                const embed = {
+                    title: '🔄 Scramble Timers Applied',
+                    description: `Applied scramble lockdown to **${affectedPlayers.length}** players.\n**Duration:** ${this.options.scrambleLockdownDurationMinutes} minutes`,
+                    color: 0x2ecc71,
+                    timestamp: new Date()
+                };
+                await this.sendDiscordMessage({ embed });
             }
         } catch (err) {
             this.verbose(1, `Error updating scramble lockdown: ${err.message}`);
+            if (this.channel) {
+                const embed = {
+                    title: '⚠️ Scramble Timer Failure',
+                    description: `Failed to apply scramble timers.\n**Error:** ${err.message}`,
+                    color: 0xe74c3c,
+                    timestamp: new Date()
+                };
+                await this.sendDiscordMessage({ embed });
+            }
         }
     }
 
@@ -790,7 +860,7 @@ export default class Switch extends DiscordBasePlugin {
 
     async onDiscordMessage(message) {
         if (message.author.bot) return;
-        if (this.options.discordChannelID && message.channel.id !== this.options.discordChannelID) return;
+        if (this.options.channelID && message.channel.id !== this.options.channelID) return;
         
         const content = message.content.trim();
         const args = content.split(' ');
@@ -800,54 +870,85 @@ export default class Switch extends DiscordBasePlugin {
         if (command !== '!switch') return;
 
         if (subCommand === 'diag') {
-            const diag = await this.getDiagnosticInfo();
-            const cooldownDurationMs = this.options.switchCooldownMinutes > 0 ? this.options.switchCooldownMinutes * 60 * 1000 : this.options.switchCooldownHours * 60 * 60 * 1000;
-            const cooldownCutoff = new Date(Date.now() - cooldownDurationMs);
+            let dbStatus = 'Error';
+            let rconLatency = 'N/A';
+            let standardCooldowns = 0;
+            let scrambleLocks = 0;
+            let playerList = 'None';
 
-            const lockedPlayers = await this.models.PlayerCooldowns.findAll({
-                where: {
-                    [Op.or]: [
-                        { scrambleLockdownExpiry: { [Op.gt]: new Date() } },
-                        { lastSwitchTimestamp: { [Op.gt]: cooldownCutoff } }
-                    ]
-                },
-                order: [['scrambleLockdownExpiry', 'DESC']],
-                limit: 10
-            });
-            const playerList = lockedPlayers.map(p => {
-                const parts = [];
-                if (p.scrambleLockdownExpiry && p.scrambleLockdownExpiry > new Date()) {
-                    parts.push(`🌪️ <t:${Math.floor(p.scrambleLockdownExpiry.getTime() / 1000)}:R>`);
+            try {
+                await this.options.database.authenticate();
+                dbStatus = 'Connected';
+
+                const start = Date.now();
+                await this.server.rcon.execute('ListPlayers');
+                rconLatency = `${Date.now() - start}ms`;
+
+                const now = new Date();
+                const cooldownDurationMs = this.options.switchCooldownMinutes > 0 ? this.options.switchCooldownMinutes * 60 * 1000 : this.options.switchCooldownHours * 60 * 60 * 1000;
+                const cooldownCutoff = new Date(now.getTime() - cooldownDurationMs);
+
+                standardCooldowns = await this.models.PlayerCooldowns.count({
+                    where: {
+                        lastSwitchTimestamp: { [Op.gt]: cooldownCutoff }
+                    }
+                });
+
+                scrambleLocks = await this.models.PlayerCooldowns.count({
+                    where: {
+                        scrambleLockdownExpiry: { [Op.gt]: now }
+                    }
+                });
+
+                const lockedPlayers = await this.models.PlayerCooldowns.findAll({
+                    where: {
+                        [Op.or]: [
+                            { scrambleLockdownExpiry: { [Op.gt]: now } },
+                            { lastSwitchTimestamp: { [Op.gt]: cooldownCutoff } }
+                        ]
+                    },
+                    order: [['scrambleLockdownExpiry', 'DESC'], ['lastSwitchTimestamp', 'DESC']],
+                    limit: 10
+                });
+
+                if (lockedPlayers.length > 0) {
+                    playerList = lockedPlayers.map(p => {
+                        const parts = [];
+                        if (p.scrambleLockdownExpiry && p.scrambleLockdownExpiry > now) {
+                            parts.push(`🌪️ <t:${Math.floor(p.scrambleLockdownExpiry.getTime() / 1000)}:R>`);
+                        }
+                        if (p.lastSwitchTimestamp && new Date(p.lastSwitchTimestamp.getTime() + cooldownDurationMs) > now) {
+                            const expiry = new Date(p.lastSwitchTimestamp.getTime() + cooldownDurationMs);
+                            parts.push(`⏳ <t:${Math.floor(expiry.getTime() / 1000)}:R>`);
+                        }
+                        return `**${p.playerName || p.steamID}**: ${parts.join(' ')}`;
+                    }).join('\n');
                 }
-                if (p.lastSwitchTimestamp && p.lastSwitchTimestamp > cooldownCutoff) {
-                    const expiry = new Date(p.lastSwitchTimestamp.getTime() + cooldownDurationMs);
-                    parts.push(`⏳ <t:${Math.floor(expiry.getTime() / 1000)}:R>`);
-                }
-                return `**${p.playerName || p.steamID}**: ${parts.join(' ')}`;
-            }).join('\n') || 'None';
+            } catch (err) {
+                dbStatus = `Error: ${err.message}`;
+            }
 
             const embed = {
-                title: 'Top 10 Cooldowned/Locked Players',
+                title: '🖥️ Switch Plugin System Diagnostics',
                 color: 0x3498db,
                 fields: [
-                    { name: 'DB Status', value: diag.dbStatus, inline: true },
-                    { name: 'Active Locks', value: String(diag.activeLocks), inline: true },
-                    { name: 'Total Players', value: String(diag.totalStoredPlayers), inline: true },
-                    { name: 'Locked Players', value: playerList }
+                    { name: 'System Health', value: `**Database:** ${dbStatus}\n**RCON Latency:** ${rconLatency}`, inline: false },
+                    { name: 'Cooldown Statistics', value: `**Standard Cooldowns:** ${standardCooldowns}\n**Scramble Locks:** ${scrambleLocks}`, inline: false },
+                    { name: 'Active Locks (Top 10)', value: playerList, inline: false }
                 ]
             };
-            await this.sendDiscordEmbed(message.channel, embed);
+            await this.sendDiscordMessage({ channel: message.channel, embed });
         } else if (subCommand === 'check') {
             const ident = args.slice(2).join(' ');
             if (!ident) {
-                message.reply('Usage: `!switch check <SteamID|Name>`');
+                await this.safeDiscordReply(message, 'Usage: `!switch check <SteamID|Name>`');
                 return;
             }
             const result = await this.checkPlayer(ident);
             if (!result) {
-                message.reply('Player not found in database.');
+                await this.safeDiscordReply(message, 'Player not found in database.');
             } else if (result === 'multiple') {
-                message.reply('⚠️ Ambiguous result: Multiple matches found. Please refine your search string or use a SteamID.');
+                await this.safeDiscordReply(message, '⚠️ Ambiguous result: Multiple matches found. Please refine your search string or use a SteamID.');
             } else {
                 const now = new Date();
                 let desc = `**SteamID:** ${result.steamID}\n**Name:** ${result.playerName || 'Unknown'}\n`;
@@ -870,28 +971,28 @@ export default class Switch extends DiscordBasePlugin {
                     desc += `🟢 **Switch Cooldown:** Ready\n`;
                 }
 
-                await this.sendDiscordEmbed(message.channel, { title: '🔍 Player Status', description: desc, color: 0x3498db });
+                await this.sendDiscordMessage({ channel: message.channel, embed: { title: '🔍 Player Status', description: desc, color: 0x3498db } });
             }
         } else if (subCommand === 'clear') {
             const ident = args.slice(2).join(' ');
             if (!ident) {
-                message.reply('Usage: `!switch clear <SteamID|Name>`');
+                await this.safeDiscordReply(message, 'Usage: `!switch clear <SteamID|Name>`');
                 return;
             }
             const result = await this.checkPlayer(ident);
             if (!result || result === 'multiple') {
-                message.reply('Player not found or multiple matches.');
+                await this.safeDiscordReply(message, 'Player not found or multiple matches.');
                 return;
             }
-            await this.options.database.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
+            await this.safeTransaction(async (t) => {
                 await this.models.PlayerCooldowns.destroy({ where: { steamID: result.steamID }, transaction: t });
             });
-            message.reply(`✅ Cleared cooldowns for **${result.playerName || result.steamID}**.`);
+            await this.safeDiscordReply(message, `✅ Cleared cooldowns for **${result.playerName || result.steamID}**.`);
         } else if (subCommand === 'clearall') {
-            await this.options.database.transaction({ type: Sequelize.Transaction.TYPES.IMMEDIATE }, async (t) => {
+            await this.safeTransaction(async (t) => {
                 await this.models.PlayerCooldowns.destroy({ where: {}, truncate: true, transaction: t });
             });
-            message.reply('🗑️ All player cooldowns cleared.');
+            await this.safeDiscordReply(message, '🗑️ All player cooldowns cleared.');
         } else if (subCommand === 'help') {
             const embed = {
                 title: '📜 Switch Plugin Commands',
@@ -904,7 +1005,7 @@ export default class Switch extends DiscordBasePlugin {
                     { name: '!switch help', value: 'Show this help message.' }
                 ]
             };
-            await this.sendDiscordEmbed(message.channel, embed);
+            await this.sendDiscordMessage({ channel: message.channel, embed });
         }
     }
 }
