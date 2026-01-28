@@ -5,7 +5,7 @@ const { DataTypes, Op } = Sequelize;
 
 /**
  * SquadJS Switch Plugin - Persistent Join Time
- * @author Slacker | Refined by Gemini
+ * @author Slacker
  */
 
 export default class Switch extends DiscordBasePlugin {
@@ -555,25 +555,21 @@ export default class Switch extends DiscordBasePlugin {
     async onPlayerConnected(info) {
         const steamID = info.player?.steamID;
         const playerName = info.player?.name;
-        this.verbose(1, `Player connected ${playerName}`);
 
+        this.verbose(1, `Player connected ${playerName}`);
         const now = Date.now();
+
+        // Always update memory
         this.playersConnectionTime[steamID] = now;
 
-        // Persist the join time to DB
+        // Update DB so Discord !switch check matches in-game reality
         try {
             await this.safeTransaction(async (t) => {
-                const record = await this.models.PlayerCooldowns.findByPk(steamID, { transaction: t });
-                if (!record) {
-                    await this.models.PlayerCooldowns.create({
-                        steamID,
-                        playerName,
-                        firstSeenTimestamp: new Date(now)
-                    }, { transaction: t });
-                } else if (!record.firstSeenTimestamp) {
-                    record.firstSeenTimestamp = new Date(now);
-                    await record.save({ transaction: t });
-                }
+                await this.models.PlayerCooldowns.upsert({
+                    steamID,
+                    playerName,
+                    firstSeenTimestamp: new Date(now)
+                }, { transaction: t });
             });
         } catch (err) {
             this.verbose(1, `Failed to persist join time: ${err.message}`);
@@ -786,6 +782,23 @@ export default class Switch extends DiscordBasePlugin {
                     transaction: t
                 });
             });
+
+            const currentSteamIDs = this.server.players.map(p => p.steamID);
+    
+            for (const steamID in this.playersConnectionTime) {
+                if (!currentSteamIDs.includes(steamID)) {
+                    delete this.playersConnectionTime[steamID];
+                }
+            }
+
+            for (const steamID in this.recentDisconnections) {
+                if (!currentSteamIDs.includes(steamID)) {
+                    // Optional: only delete if they've been gone a long time
+                    if (Date.now() - this.recentDisconnections[steamID].time > 60 * 60 * 1000) {
+                        delete this.recentDisconnections[steamID];
+                    }
+                }
+            }
         } catch (err) {
             this.verbose(1, `Cleanup error: ${err.message}`);
         }
