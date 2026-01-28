@@ -989,7 +989,7 @@ export default class Switch extends DiscordBasePlugin {
             
                 // Add First Seen to Discord check
                 if (result.firstSeenTimestamp) {
-                    desc += `📅 **First Joined:** <t:${Math.floor(new Date(result.firstSeenTimestamp).getTime()/1000)}:f>\n`;
+                    desc += `⏱️ **Joined:** <t:${Math.floor(new Date(result.firstSeenTimestamp).getTime()/1000)}:f>\n`;
                 }
 
                 await this.sendDiscordMessage({ channel: message.channel, embed: { title: '🔍 Player Status', description: desc, color: 0x3498db } });
