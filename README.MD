@@ -19,6 +19,8 @@ Manages player team-change requests with cooldown enforcement and admin restrict
 * `!switch help` — in-game warning popup explaining eligibility
 
 ### Admin (Discord & In-Game)
+* `!switch list` — view current switch matchend queue (currently only in-game)
+* `!switch wipequeue` — clear matchend queue (currently only in-game)
 * `!switch diag` — database health + top 10 players by remaining lock time
 * `!switch check <Name/SteamID>` — real-time eligibility lookup
 * `!switch clear <Name/SteamID>` — remove cooldowns/locks for player
@@ -54,7 +56,7 @@ Manages player team-change requests with cooldown enforcement and admin restrict
 **Required:**
 - `plugin` — must be `"Switch"`
 - `enabled` — `true` to enable plugin
-- `database` — Sequelize connector (typically `"sqlite"`)
+- `database` — Sequelize connector (typically `"sqlite" or "mysql"`)
 
 **Optional:**
 - `commandPrefix` — command(s) to trigger switch (string or array). Default: `["!switch", "!change"]`
