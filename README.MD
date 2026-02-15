@@ -18,9 +18,21 @@ Manages player team-change requests with cooldown enforcement and admin restrict
 * `!switch` — request team change (checks balance, cooldowns, locks)
 * `!switch help` — in-game warning popup explaining eligibility
 
+### Admin Commands
+* `!switch now {username}` - Changes team of a player by its username.
+* `!switch now {steamID}` - Changes team of a player by its SteamID64.
+* `!switch squad {squad_number} {team_short_name}` - Changes team of all the players of a squad by squad number and team short name.
+* `!switch squad {squad_number} {teamID}` - Changes team of all the players of a squad by squad number and team ID.
+* `!switch double {username}` - Double switches a player by its username.
+* `!switch double {steamID}` - Double switches a player by its SteamID64.
+* `!switch matchend {username}` - Switches a player by its username, at the end of the match.
+* `!switch matchend {steamID}` - Switches a player by its SteamID64, at the end of the match.
+* `!switch doublesquad {squad_number} {team_short_name}` - Double switches all the players of a squad by squad number and team short name.
+* `!switch matchendsquad {squad_number} {team_short_name}` - Switches all the players of a squad at the end of the match.
+* `!switch list` — view current switch matchend queue
+* `!switch wipequeue` — clear matchend queue
+
 ### Admin (Discord & In-Game)
-* `!switch list` — view current switch matchend queue (currently only in-game)
-* `!switch wipequeue` — clear matchend queue (currently only in-game)
 * `!switch diag` — database health + top 10 players by remaining lock time
 * `!switch check <Name/SteamID>` — real-time eligibility lookup
 * `!switch clear <Name/SteamID>` — remove cooldowns/locks for player
