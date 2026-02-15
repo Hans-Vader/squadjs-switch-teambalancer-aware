@@ -1,7 +1,6 @@
 import Sequelize from 'sequelize';
 import DiscordBasePlugin from './discord-base-plugin.js';
 import {setTimeout as delay} from "timers/promises";
-
 const {DataTypes, Op} = Sequelize;
 
 /**
@@ -108,6 +107,7 @@ export default class Switch extends DiscordBasePlugin {
         this.playersConnectionTime = [];
         this.recentDoubleSwitches = [];
         this.recentDisconnections = [];
+        this.globalDisabledExpiry = null;
 
         this.models = {};
 
@@ -233,6 +233,33 @@ export default class Switch extends DiscordBasePlugin {
             if (subCommand && subCommand !== '') {
                 let pl;
                 switch (subCommand) {
+                    case 'disable':
+                        if (!isAdmin) {
+                            this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                            return;
+                        }
+                        this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
+                    {
+                        const minutes = parseInt(commandSplit[1]);
+                        if (!minutes || minutes <= 0) {
+                            this.warn(steamID, 'Usage: !switch disable <minutes>');
+                            return;
+                        }
+                        this.globalDisabledExpiry = new Date(Date.now() + minutes * 60 * 1000);
+                        this.warn(steamID, `Command disable for ${minutes} minute(s).`);
+                        this.verbose(1, `[Admin] ${playerName} disabled switch for ${minutes}m until ${this.globalDisabledExpiry.toISOString()}`);
+                    }
+                        break;
+                    case 'enable':
+                        if (!isAdmin) {
+                            this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
+                            return;
+                        }
+                        this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
+                        this.globalDisabledExpiry = null;
+                        this.warn(steamID, 'Command enabled for all players.');
+                        this.verbose(1, `[Admin] ${playerName} switch command enabled.`);
+                        break;
                     case 'now':
                         if (!isAdmin) {
                             this.verbose(1, `[Denied] Player ${playerName} (not admin) attempted admin command: ${subCommand}`);
@@ -322,7 +349,7 @@ export default class Switch extends DiscordBasePlugin {
                         break;
                     case "help":
                         if (isAdmin) {
-                            this.warn(steamID, "--- Admin Controls ---\n\nPlayer: now, double, matchend, check, clear\n\nSquad: squad, doublesquad, matchendsquad\n\nOther: list, wipequeue");
+                            this.warn(steamID, "--- Admin Controls ---\n\nPlayer: now, double, matchend, check, clear\n\nSquad: squad, doublesquad, matchendsquad\n\nOther: list, wipequeue, disable, enable");
                         } else {
                             this.warn(steamID, `Usage: !switch | Status: Available first ${this.options.switchEnabledMinutes} mins of match/join.`);
                         }
@@ -443,18 +470,26 @@ export default class Switch extends DiscordBasePlugin {
                 this.verbose(1, playerName, 'requested a switch');
                 this.verbose(1, `Team (${teamID}) balance difference:`, availableSwitchSlots);
 
+                // Check global block for non-admins
+                if (!isAdmin && this.globalDisabledExpiry && new Date() < this.globalDisabledExpiry) {
+                    const remaining = Math.ceil((this.globalDisabledExpiry - Date.now()) / 60000);
+                    this.warn(steamID, `Command disabled. ${remaining}min remaining.`);
+                    this.verbose(1, `[Switch] Denied ${playerName}: Global disabled.`);
+                    return;
+                }
+
                 const cooldownData = await this.models.PlayerCooldowns.findByPk(steamID);
 
                 if (cooldownData && cooldownData.scrambleLockdownExpiry && new Date() < cooldownData.scrambleLockdownExpiry) {
                     const remaining = Math.ceil((cooldownData.scrambleLockdownExpiry - Date.now()) / 60000);
-                    this.warn(steamID, `Scramble Lock: Cannot switch for ${remaining}m.`);
+                    this.warn(steamID, `Scramble Lock: Cannot switch for ${remaining}min.`);
                     this.verbose(1, `[Switch] Denied ${playerName}: Scramble lockdown active.`);
                     return;
                 }
 
                 // Logic check updated for persistent join time
                 if (connectionSeconds / 60 > this.options.switchEnabledMinutes && this.getSecondsFromMatchStart() / 60 > this.options.switchEnabledMinutes) {
-                    this.warn(steamID, `Time Limit: Switch allowed only in first ${this.options.switchEnabledMinutes}m of join/match.`);
+                    this.warn(steamID, `Time Limit: Switch allowed only in first ${this.options.switchEnabledMinutes}min of join/match.`);
                     this.verbose(1, `[Switch] Denied ${playerName}: Match time limit exceeded.`);
                     return;
                 }
@@ -1052,3 +1087,4 @@ export default class Switch extends DiscordBasePlugin {
         // todo: add list and wipequeue to discord commands
     }
 }
+
