@@ -1,6 +1,7 @@
 import Sequelize from 'sequelize';
 import DiscordBasePlugin from './discord-base-plugin.js';
 import {setTimeout as delay} from "timers/promises";
+
 const {DataTypes, Op} = Sequelize;
 
 /**
@@ -71,6 +72,14 @@ export default class Switch extends DiscordBasePlugin {
                 default: 'sqlite'
             }, scrambleLockdownDurationMinutes: {
                 required: false, description: "Duration in minutes to block switching after a scramble.", default: 20
+            }, showDisabledTimeRemaining: {
+                required: false,
+                description: "Show remaining time when switch command is globally disabled",
+                default: true
+            }, maxDisableDurationMinutes: {
+                required: false,
+                description: "Maximum duration in minutes for global disable (to prevent excessively long disable times)",
+                default: 60
             }
         };
     }
@@ -229,7 +238,8 @@ export default class Switch extends DiscordBasePlugin {
             const commandSplit = message.substring(commandPrefixInUse.length).trim().split(' ').filter(Boolean);
             const subCommand = commandSplit[0];
 
-            const isAdmin = info.chat === "ChatAdmin" || (this.server.admins && Object.prototype.hasOwnProperty.call(this.server.admins, steamID));
+            // const isAdmin = info.chat === "ChatAdmin" || (this.server.admins && Object.prototype.hasOwnProperty.call(this.server.admins, steamID));
+            const isAdmin = info.chat === "ChatAdmin";
             if (subCommand && subCommand !== '') {
                 let pl;
                 switch (subCommand) {
@@ -239,16 +249,19 @@ export default class Switch extends DiscordBasePlugin {
                             return;
                         }
                         this.verbose(1, `[Admin] Command '${subCommand}' accepted from ${playerName}`);
-                    {
+
                         const minutes = parseInt(commandSplit[1]);
                         if (!minutes || minutes <= 0) {
                             this.warn(steamID, 'Usage: !switch disable <minutes>');
                             return;
                         }
+                        if (minutes > this.options.maxDisableDurationMinutes) {
+                            this.warn(steamID, `Maximum disable duration is ${this.options.maxDisableDurationMinutes} minutes.`);
+                            return;
+                        }
                         this.globalDisabledExpiry = new Date(Date.now() + minutes * 60 * 1000);
-                        this.warn(steamID, `Command disable for ${minutes} minute(s).`);
+                        this.warn(steamID, `Command temporarily disable for ${minutes} minute(s).`);
                         this.verbose(1, `[Admin] ${playerName} disabled switch for ${minutes}m until ${this.globalDisabledExpiry.toISOString()}`);
-                    }
                         break;
                     case 'enable':
                         if (!isAdmin) {
@@ -472,8 +485,12 @@ export default class Switch extends DiscordBasePlugin {
 
                 // Check global block for non-admins
                 if (!isAdmin && this.globalDisabledExpiry && new Date() < this.globalDisabledExpiry) {
-                    const remaining = Math.ceil((this.globalDisabledExpiry - Date.now()) / 60000);
-                    this.warn(steamID, `Command disabled. ${remaining}min remaining.`);
+                    let message = `Command temporarily disabled.`;
+                    if (this.options.showDisabledTimeRemaining) {
+                        const remaining = Math.ceil((this.globalDisabledExpiry - Date.now()) / 60000);
+                        message += `\n${remaining} minute(s) remaining.`;
+                    }
+                    this.warn(steamID, message);
                     this.verbose(1, `[Switch] Denied ${playerName}: Global disabled.`);
                     return;
                 }
@@ -689,8 +706,7 @@ export default class Switch extends DiscordBasePlugin {
             }
 
             if (recentSwitch) recentSwitch.datetime = new Date(); else this.recentDoubleSwitches.push({
-                steamID: steamID,
-                datetime: new Date()
+                steamID: steamID, datetime: new Date()
             });
         }
 
@@ -1066,20 +1082,14 @@ export default class Switch extends DiscordBasePlugin {
             await this.safeDiscordReply(message, '🗑️ All player cooldowns cleared.');
         } else if (subCommand === 'help') {
             const embed = {
-                title: '📜 Switch Plugin Commands',
-                description: 'Available commands:',
-                fields: [{
-                    name: '!switch diag',
-                    value: 'Show database diagnostics and active locks.'
+                title: '📜 Switch Plugin Commands', description: 'Available commands:', fields: [{
+                    name: '!switch diag', value: 'Show database diagnostics and active locks.'
                 }, {
-                    name: '!switch check <ident>',
-                    value: 'Check cooldown status for a player.'
+                    name: '!switch check <ident>', value: 'Check cooldown status for a player.'
                 }, {
-                    name: '!switch clear <ident>',
-                    value: 'Clear cooldowns for a specific player.'
+                    name: '!switch clear <ident>', value: 'Clear cooldowns for a specific player.'
                 }, {name: '!switch clearall', value: 'Clear all player cooldowns.'}, {
-                    name: '!switch help',
-                    value: 'Show this help message.'
+                    name: '!switch help', value: 'Show this help message.'
                 }]
             };
             await this.sendDiscordMessage({channel: message.channel, embed});
