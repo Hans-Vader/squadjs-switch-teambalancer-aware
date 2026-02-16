@@ -79,7 +79,7 @@ export default class Switch extends DiscordBasePlugin {
             }, maxDisableDurationMinutes: {
                 required: false,
                 description: "Maximum duration in minutes for global disable (to prevent excessively long disable times)",
-                default: 60
+                default: 30
             }
         };
     }
