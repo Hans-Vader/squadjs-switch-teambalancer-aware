@@ -238,8 +238,7 @@ export default class Switch extends DiscordBasePlugin {
             const commandSplit = message.substring(commandPrefixInUse.length).trim().split(' ').filter(Boolean);
             const subCommand = commandSplit[0];
 
-            // const isAdmin = info.chat === "ChatAdmin" || (this.server.admins && Object.prototype.hasOwnProperty.call(this.server.admins, steamID));
-            const isAdmin = info.chat === "ChatAdmin";
+            const isAdmin = info.chat === "ChatAdmin" || (this.server.admins && Object.prototype.hasOwnProperty.call(this.server.admins, steamID));
             if (subCommand && subCommand !== '') {
                 let pl;
                 switch (subCommand) {
