@@ -29,8 +29,7 @@ export default class Switch extends DiscordBasePlugin {
             }, doubleSwitchCommands: {
                 required: false,
                 description: 'Array of commands that can be sent in every chat to request a double switch',
-                default: [],
-                example: ['!bug', '!stuck', '!doubleswitch']
+                default: ['!bug', '!stuck', '!doubleswitch']
             }, doubleSwitchCooldownHours: {
                 required: false,
                 description: "Hours to wait before using again one of the double switch commands",
