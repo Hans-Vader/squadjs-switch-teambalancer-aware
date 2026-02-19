@@ -58,7 +58,6 @@ Manages player team-change requests with cooldown enforcement and admin restrict
     "doubleSwitchCooldownHours": 0.5,
     "doubleSwitchDelaySeconds": 1,
     "doubleSwitchEnabledMinutes": 5,
-    "endMatchSwitchSlots": 3,
     "maxUnbalancedSlots": 5,
     "switchToOldTeamAfterRejoin": false,
     "scrambleLockdownDurationMinutes": 20,
@@ -92,7 +91,6 @@ Manages player team-change requests with cooldown enforcement and admin restrict
 - `doubleSwitchEnabledMinutes` — time window for double switch. Default: `5`
 
 **Advanced:**
-- `endMatchSwitchSlots` — queue size for end-of-round switches. Default: `3`
 - `switchToOldTeamAfterRejoin` — auto-switch rejoining players to their pre-disconnect team. Default: `false`
 - `scrambleLockdownDurationMinutes` — blocks all players from switching after scramble. Default: `20`
 - `showDisabledTimeRemaining` — show remaining time when switch is globally disabled. Default: `true`
