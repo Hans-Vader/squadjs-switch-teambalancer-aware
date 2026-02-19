@@ -37,10 +37,6 @@ export default class Switch extends DiscordBasePlugin {
                 default: 0.5
             }, doubleSwitchDelaySeconds: {
                 required: false, description: "Delay between the first and second team switch", default: 1
-            }, endMatchSwitchSlots: {
-                required: false,
-                description: "Number of switch slots, players will be put in a queue and switched at the end of the match",
-                default: 3
             }, switchCooldownHours: {
                 required: false, description: "Hours to wait before using again the !switch command", default: 3
             }, switchCooldownMinutes: {
