@@ -85,7 +85,7 @@ Manages player team-change requests with cooldown enforcement and admin restrict
 - `maxUnbalancedSlots` — max player difference between teams to allow switch. Default: `3`
 
 **Double Switch:**
-- `doubleSwitchCommands` — commands that swap player to opposite team and back (fixes bugs without changing teams). Default: `[]`
+- `doubleSwitchCommands` — commands that swap player to opposite team and back (fixes bugs without changing teams). Default: `['!bug', '!stuck', '!doubleswitch']`
 - `doubleSwitchCooldownHours` — cooldown for double switch commands. Default: `0.5`
 - `doubleSwitchDelaySeconds` — delay between first and second swap. Default: `1`
 - `doubleSwitchEnabledMinutes` — time window for double switch. Default: `5`
